@@ -18,6 +18,8 @@ from minigraph import parse_device_desc_xml
 import aaa
 import mlnx
 
+CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help', '-?'])
+
 SONIC_CFGGEN_PATH = '/usr/local/bin/sonic-cfggen'
 SYSLOG_IDENTIFIER = "config"
 
@@ -45,6 +47,16 @@ def log_error(msg):
     syslog.openlog(SYSLOG_IDENTIFIER)
     syslog.syslog(syslog.LOG_ERR, msg)
     syslog.closelog()
+
+#
+# Load asic_type for further use
+#
+
+try:
+    version_info = sonic_device_util.get_sonic_version_info()
+    asic_type = version_info['asic_type']
+except KeyError, TypeError:
+    raise click.Abort()
 
 #
 # Helper functions
@@ -312,6 +324,7 @@ def _abort_if_false(ctx, param, value):
         ctx.abort()
 
 def _stop_services():
+    # on Mellanox platform pmon is stopped by syncd
     services_to_stop = [
         'swss',
         'lldp',
@@ -319,6 +332,8 @@ def _stop_services():
         'bgp',
         'hostcfgd',
     ]
+    if asic_type == 'mellanox' and 'pmon' in services_to_stop:
+        services_to_stop.remove('pmon')
 
     for service in services_to_stop:
         try:
@@ -356,6 +371,7 @@ def _reset_failed_services():
             raise
 
 def _restart_services():
+    # on Mellanox platform pmon is started by syncd
     services_to_restart = [
         'hostname-config',
         'interfaces-config',
@@ -367,6 +383,8 @@ def _restart_services():
         'lldp',
         'hostcfgd',
     ]
+    if asic_type == 'mellanox' and 'pmon' in services_to_restart:
+        services_to_restart.remove('pmon')
 
     for service in services_to_restart:
         try:
@@ -386,8 +404,9 @@ def is_ipaddress(val):
         return False
     return True
 
+
 # This is our main entrypoint - the main 'config' command
-@click.group()
+@click.group(context_settings=CONTEXT_SETTINGS)
 def config():
     """SONiC command line - 'config' command"""
     if os.geteuid() != 0:
@@ -1347,8 +1366,7 @@ def asymmetric(ctx, interface_name, status):
 def platform():
     """Platform-related configuration tasks"""
 
-version_info = sonic_device_util.get_sonic_version_info()
-if (version_info and version_info.get('asic_type') == 'mellanox'):
+if asic_type == 'mellanox':
     platform.add_command(mlnx.mlnx)
 
 #
